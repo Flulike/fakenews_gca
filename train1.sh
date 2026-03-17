@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 python src/sheepdog.py --dataset_name gossipcop --model_name sheepdog --iters 10 --n_epochs 10 --batch_size 4 --model_version v1 --disable_gate > results/$(date +%Y%m%d_%H%M)_gossipcop_v1_nogate.log 2>&1
