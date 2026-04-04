@@ -9,10 +9,10 @@ def load_articles(obj):
     print('Dataset: ', obj)
     print("loading news articles")
 
-    train_dict = pickle.load(open('data/news_articles/' + obj + '_train_re.pkl', 'rb'))
-    test_dict = pickle.load(open('data/news_articles/' + obj + '_test_re.pkl', 'rb'))
+    train_dict = pickle.load(open('dataset/news_articles/' + obj + '_train_re.pkl', 'rb'))
+    test_dict = pickle.load(open('dataset/news_articles/' + obj + '_test_re.pkl', 'rb'))
 
-    restyle_dict = pickle.load(open('data/emotion/' + obj+ '_test_anger.pkl', 'rb'))
+    restyle_dict = pickle.load(open('dataset/emotions/' + obj+ '_test_anger.pkl', 'rb'))
     # alternatively, switch to loading other adversarial test sets with '_test_adv_[B/C/D].pkl'
 
     x_train, y_train, z_train = train_dict['news'], train_dict['labels'], train_dict["explanation"] 
@@ -27,13 +27,13 @@ def load_reframing(obj):
     print("loading news augmentations")
     print('Dataset: ', obj)
 
-    restyle_dict_train1_1 = pickle.load(open('data/reframings/' + obj+ '_train_objective.pkl', 'rb'))
-    restyle_dict_train1_2 = pickle.load(open('data/reframings/' + obj+ '_train_neutral.pkl', 'rb'))
-    restyle_dict_train2_1 = pickle.load(open('data/reframings/' + obj+ '_train_emotionally_triggering.pkl', 'rb'))
-    restyle_dict_train2_2 = pickle.load(open('data/reframings/' + obj+ '_train_sensational.pkl', 'rb'))
+    restyle_dict_train1_1 = pickle.load(open('dataset/reframings/' + obj+ '_train_objective.pkl', 'rb'))
+    restyle_dict_train1_2 = pickle.load(open('dataset/reframings/' + obj+ '_train_neutral.pkl', 'rb'))
+    restyle_dict_train2_1 = pickle.load(open('dataset/reframings/' + obj+ '_train_emotionally_triggering.pkl', 'rb'))
+    restyle_dict_train2_2 = pickle.load(open('dataset/reframings/' + obj+ '_train_sensational.pkl', 'rb'))
 
-    finegrain_dict1 = pickle.load(open('data/veracity_attributions/' + obj+ '_fake_standards_objective_emotionally_triggering.pkl', 'rb'))
-    finegrain_dict2 = pickle.load(open('data/veracity_attributions/' + obj+ '_fake_standards_neutral_sensational.pkl', 'rb'))
+    finegrain_dict1 = pickle.load(open('dataset/veracity_attributions/' + obj+ '_fake_standards_objective_emotionally_triggering.pkl', 'rb'))
+    finegrain_dict2 = pickle.load(open('dataset/veracity_attributions/' + obj+ '_fake_standards_neutral_sensational.pkl', 'rb'))
 
     x_train_res1 = np.array(restyle_dict_train1_1['rewritten'])
     x_train_res1_2 = np.array(restyle_dict_train1_2['rewritten'])
@@ -61,7 +61,7 @@ def load_emotion_tests(obj, emotions=None):
     Args:
         obj: dataset name (e.g., 'politifact')
         emotions: list of emotion names (e.g., ['anger', 'happiness']). If None or empty,
-                  auto-detect all available emotions under data/emotion/.
+                  auto-detect all available emotions under dataset/emotions/.
 
     Returns:
         dict mapping emotion -> np.array of rewritten news texts
