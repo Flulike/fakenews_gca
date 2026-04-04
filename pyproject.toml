@@ -56,5 +56,5 @@ dependencies = [
     "six",
     "sniffio",
     "torch",
-    "transformers",
+    "transformers<5",
 ]
