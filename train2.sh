@@ -4,8 +4,8 @@ set -euo pipefail
 mkdir -p results
 
 run_id="$(date +%Y%m%d_%H%M%S)"
-log_file="results/${run_id}_gossipcop_v2_nogate.log"
-status_file="results/${run_id}_gossipcop_v2_nogate.status"
+log_file="results/${run_id}_lun_v2__bert.log"
+status_file="results/${run_id}_lun_v2__bert.status"
 
 echo "start_time=$(date -Is)" > "$status_file"
 echo "pid=$$" >> "$status_file"
@@ -14,14 +14,15 @@ echo "log_file=$log_file" >> "$status_file"
 echo "[START] $(date -Is)" > "$log_file"
 
 set +e
-CUDA_VISIBLE_DEVICES=1 uv run src/sheepdog.py \
-	--dataset_name gossipcop \
+CUDA_VISIBLE_DEVICES=2 uv run src/sheepdog.py \
+	--dataset_name lun \
 	--model_name sheepdog \
 	--iters 10 \
 	--n_epochs 5 \
 	--batch_size 4 \
 	--model_version v2 \
-	--disable_gate \
+	--use_match_loss \
+	--encoder_type bert \
 	>> "$log_file" 2>&1
 exit_code=$?
 set -e
