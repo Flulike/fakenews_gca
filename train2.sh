@@ -3,9 +3,23 @@ set -euo pipefail
 
 mkdir -p results
 
+encoder_type="bert"
+dataset_name="gossipcop"
+model_version="v2"
+distorted=false
+
 run_id="$(date +%Y%m%d_%H%M%S)"
-log_file="results/${run_id}_lun_v2__bert.log"
-status_file="results/${run_id}_lun_v2__bert.status"
+run_name="${run_id}_${dataset_name}_${model_version}"
+if [[ "$encoder_type" == "bert" ]]; then
+	run_name="${run_name}_bert"
+fi
+if [[ "$distorted" == true ]]; then
+	run_name="${run_name}_distort"
+fi
+log_file="results/${run_name}.log"
+status_file="results/${run_name}.status"
+
+mkdir -p "checkpoints/${dataset_name}/${run_name}"
 
 echo "start_time=$(date -Is)" > "$status_file"
 echo "pid=$$" >> "$status_file"
@@ -15,14 +29,16 @@ echo "[START] $(date -Is)" > "$log_file"
 
 set +e
 CUDA_VISIBLE_DEVICES=2 uv run src/sheepdog.py \
-	--dataset_name lun \
+	--dataset_name $dataset_name \
 	--model_name sheepdog \
-	--iters 10 \
+	--iters 5 \
 	--n_epochs 5 \
 	--batch_size 4 \
-	--model_version v2 \
+	--model_version $model_version \
 	--use_match_loss \
-	--encoder_type bert \
+	--encoder_type $encoder_type \
+	$( [[ "$distorted" == true ]] && echo "--distorted" ) \
+	--run_name "$run_name" \
 	>> "$log_file" 2>&1
 exit_code=$?
 set -e

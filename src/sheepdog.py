@@ -50,23 +50,63 @@ parser.add_argument('--use_match_loss', action='store_true',
                     help='Enable InfoNCE match loss between text and explanation features')
 parser.add_argument('--disable_gate', action='store_true',
                     help='Disable gate mechanism in fusion layer (for ablation study)')
+parser.add_argument('--distorted', action='store_true',
+                    help='Shift training explanations by one position to break text-explanation alignment')
+parser.add_argument('--run_name', default='', type=str,
+                    help='Run identifier used for logs/checkpoints; if empty, auto-generated')
 
 args = parser.parse_args()
 
 
-def build_checkpoint_path(datasetname: str, iter_idx: int) -> Path:
-    """Construct timestamped checkpoint path with variant tags."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+def build_run_name(datasetname: str) -> str:
+    """Build a stable run name shared by logs and checkpoint directory."""
+    if args.run_name:
+        return args.run_name
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     name_parts = [timestamp, datasetname, args.model_version]
     if args.disable_gate:
-        name_parts.append("no_gate")
-    if not args.use_match_loss:
-        name_parts.append("no_loss")
-    name_parts.append(f"iter{iter_idx}")
-    filename = "_".join(name_parts) + ".m"
-    checkpoint_dir = Path("checkpoints") / datasetname
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    return checkpoint_dir / filename
+        name_parts.append("nogate")
+    if args.use_match_loss:
+        name_parts.append("matchloss")
+    if args.encoder_type != 'roberta':
+        name_parts.append(args.encoder_type)
+    return "_".join(name_parts)
+
+
+def build_checkpoint_path(datasetname: str, run_name: str, iter_idx: int) -> Path:
+    """Save checkpoints into checkpoints/<dataset>/<run_name>/iterX.m."""
+    checkpoint_dir = resolve_checkpoint_run_dir(datasetname, run_name)
+    return checkpoint_dir / f"iter{iter_idx}.m"
+
+
+def resolve_checkpoint_run_dir(datasetname: str, run_name: str) -> Path:
+    """Return the checkpoint directory for this run, preferring the exact run name."""
+    base_dir = Path("checkpoints") / datasetname
+    exact_dir = base_dir / run_name
+
+    if exact_dir.exists():
+        return exact_dir
+
+    if base_dir.exists():
+        candidate_dirs = [
+            path for path in base_dir.iterdir()
+            if path.is_dir() and run_name in path.name
+        ]
+        if candidate_dirs:
+            return max(candidate_dirs, key=lambda path: path.stat().st_mtime)
+
+    exact_dir.mkdir(parents=True, exist_ok=True)
+    return exact_dir
+
+
+def distort_explanations(explanations):
+    """Rotate explanations by one position for training ablations."""
+    if not explanations:
+        return explanations
+    if len(explanations) == 1:
+        return explanations
+    return explanations[1:] + explanations[:1]
 
 # 根据命令行参数选择模型版本和底层编码器
 MODEL_REGISTRY = {
@@ -502,11 +542,14 @@ def bi_info_nce_loss(msg_embeds, exp_embeds, temperature=0.1):
     return 0.5 * (loss_msg2exp + loss_exp2msg)
 
 
-def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, datasetname, iter):
+def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, datasetname, iter, run_name):
 
     x_train, x_test, x_test_res, y_train, y_test, z_train, z_test = load_articles(datasetname)
     print(f"Loaded data - Train: {len(x_train)}, Test: {len(x_test)}, Explanations: {len(z_train) if z_train else 'None'}")
     print(f"Label distribution - Train: {np.unique(y_train, return_counts=True)}")
+    if args.distorted:
+        z_train = distort_explanations(z_train)
+        print("Training explanations are distorted by one position.")
     print(f"Sample explanation: {z_train[0] if z_train and len(z_train) > 0 else 'No explanations'}")
     test_loader = create_eval_loader(x_test, y_test, z_test, tokenizer, exp_tokenizer, max_len, batch_size)
     # multi-emotion adversarial test sets
@@ -1000,7 +1043,7 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
             fscore_res = float(np.mean(emo_f1s)) if len(emo_f1s) > 0 else 0.0
 
 
-    checkpoint_path = build_checkpoint_path(datasetname, iter)
+    checkpoint_path = build_checkpoint_path(datasetname, run_name, iter)
     torch.save(model.state_dict(), checkpoint_path)
     print(f"Saved checkpoint to {checkpoint_path}")
 
@@ -1020,6 +1063,14 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
 
 
 datasetname=args.dataset_name
+run_name = build_run_name(datasetname)
+print(f"Run name: {run_name}")
+
+# Keep checkpoint folder in sync with run naming convention.
+checkpoint_run_dir = resolve_checkpoint_run_dir(datasetname, run_name)
+checkpoint_run_dir.mkdir(parents=True, exist_ok=True)
+print(f"Checkpoint directory: {checkpoint_run_dir}")
+
 batch_size = args.batch_size
 max_len = 512
 tokenizer = AutoTokenizer.from_pretrained(pretrained_backbone_name)
@@ -1045,7 +1096,8 @@ for iter in range(iterations):
                                                 n_epochs,
                                                 batch_size,
                                                 datasetname,
-                                                iter)
+                                                iter,
+                                                run_name)
 
     test_accs.append(acc)
     prec_all.append(prec)
@@ -1107,7 +1159,11 @@ if all_emotion_results:
 print("="*80)
 
 
-with open('logs/log_' +  datasetname + '_' + args.model_name + '.' + 'iter' + str(iterations), 'a+') as f:
+summary_log_dir = Path("results")
+summary_log_dir.mkdir(parents=True, exist_ok=True)
+summary_log_path = summary_log_dir / f"log_{datasetname}_{args.model_name}.iter{iterations}"
+
+with open(summary_log_path, 'a+') as f:
     f.write('-------------Original-------------\n')
     f.write('All Acc.s:{}\n'.format(test_accs))
     f.write('All Prec.s:{}\n'.format(prec_all))

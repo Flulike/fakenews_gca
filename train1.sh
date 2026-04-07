@@ -3,9 +3,19 @@ set -euo pipefail
 
 mkdir -p results
 
+dataset_name="lun"
+model_version="v1"
+distorted=true
+
 run_id="$(date +%Y%m%d_%H%M%S)"
-log_file="results/${run_id}_gossipcop_v2_nogate.log"
-status_file="results/${run_id}_gossipcop_v2_nogate.status"
+run_name="${run_id}_${dataset_name}_${model_version}"
+if [[ "$distorted" == true ]]; then
+	run_name="${run_name}_distort"
+fi
+log_file="results/${run_name}.log"
+status_file="results/${run_name}.status"
+
+mkdir -p "checkpoints/${dataset_name}/${run_name}"
 
 echo "start_time=$(date -Is)" > "$status_file"
 echo "pid=$$" >> "$status_file"
@@ -15,13 +25,15 @@ echo "[START] $(date -Is)" > "$log_file"
 
 set +e
 CUDA_VISIBLE_DEVICES=1 uv run src/sheepdog.py \
-	--dataset_name gossipcop \
+	--dataset_name $dataset_name \
 	--model_name sheepdog \
-	--iters 10 \
+	--iters 5 \
 	--n_epochs 5 \
 	--batch_size 4 \
-	--model_version v2 \
-	--disable_gate \
+	--model_version $model_version \
+	--use_match_loss \
+	$( [[ "$distorted" == true ]] && echo "--distorted" ) \
+	--run_name "$run_name" \
 	>> "$log_file" 2>&1
 exit_code=$?
 set -e

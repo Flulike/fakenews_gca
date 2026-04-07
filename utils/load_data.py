@@ -66,9 +66,15 @@ def load_emotion_tests(obj, emotions=None):
     Returns:
         dict mapping emotion -> np.array of rewritten news texts
     """
+    emotion_dir_candidates = [
+        os.path.join('dataset', 'emotions'),
+        os.path.join('data', 'emotion'),
+    ]
+    emotion_dir = next((d for d in emotion_dir_candidates if os.path.isdir(d)), emotion_dir_candidates[0])
+
     detected = []
     if not emotions:
-        pattern = os.path.join('data', 'emotion', f'{obj}_test_*.pkl')
+        pattern = os.path.join(emotion_dir, f'{obj}_test_*.pkl')
         for path in glob.glob(pattern):
             base = os.path.basename(path)
             # filename pattern: {obj}_test_{emotion}.pkl
@@ -83,7 +89,7 @@ def load_emotion_tests(obj, emotions=None):
 
     tests = {}
     for emo in emotions:
-        path = os.path.join('data', 'emotion', f'{obj}_test_{emo}.pkl')
+        path = os.path.join(emotion_dir, f'{obj}_test_{emo}.pkl')
         try:
             restyle_dict = pickle.load(open(path, 'rb'))
             tests[emo] = np.array(restyle_dict['news'])
