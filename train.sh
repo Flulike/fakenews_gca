@@ -7,7 +7,7 @@ dataset_name="lun"
 encoder_type="roberta"
 model_version="v2"
 distorted=false
-use_match_loss=false
+use_match_loss=true
 disable_gate=false
 
 run_id="$(date +%Y%m%d_%H%M%S)"

@@ -3,11 +3,11 @@ set -euo pipefail
 
 mkdir -p results
 
-encoder_type="bert"
+encoder_type="roberta"
 dataset_name="gossipcop"
 model_version="v2"
 distorted=false
-use_match_loss=true
+use_match_loss=false
 disable_gate=false
 
 run_id="$(date +%Y%m%d_%H%M%S)"
@@ -18,8 +18,8 @@ fi
 if [[ "$distorted" == true ]]; then
 	run_name="${run_name}_distort"
 fi
-if [[ "$use_match_loss" == true ]]; then
-	run_name="${run_name}_loss"
+if [[ "$use_match_loss" == false ]]; then
+	run_name="${run_name}_noloss"
 fi
 if [[ "$disable_gate" == true ]]; then
 	run_name="${run_name}_nogate"

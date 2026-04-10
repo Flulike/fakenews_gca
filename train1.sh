@@ -3,12 +3,12 @@ set -euo pipefail
 
 mkdir -p results
 
-dataset_name="lun"
+dataset_name="politifact"
 model_version="v2"
 encoder_type="roberta"
-distorted=true
-use_match_loss=true
-disable_gate=false
+distorted=false
+use_match_loss=false
+disable_gate=true
 
 run_id="$(date +%Y%m%d_%H%M%S)"
 run_name="${run_id}_${dataset_name}_${model_version}"
