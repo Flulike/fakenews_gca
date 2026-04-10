@@ -7,6 +7,8 @@ encoder_type="bert"
 dataset_name="gossipcop"
 model_version="v2"
 distorted=false
+use_match_loss=true
+disable_gate=false
 
 run_id="$(date +%Y%m%d_%H%M%S)"
 run_name="${run_id}_${dataset_name}_${model_version}"
@@ -15,6 +17,12 @@ if [[ "$encoder_type" == "bert" ]]; then
 fi
 if [[ "$distorted" == true ]]; then
 	run_name="${run_name}_distort"
+fi
+if [[ "$use_match_loss" == true ]]; then
+	run_name="${run_name}_loss"
+fi
+if [[ "$disable_gate" == true ]]; then
+	run_name="${run_name}_nogate"
 fi
 log_file="results/${run_name}.log"
 status_file="results/${run_name}.status"
@@ -38,6 +46,8 @@ CUDA_VISIBLE_DEVICES=2 uv run src/sheepdog.py \
 	--use_match_loss \
 	--encoder_type $encoder_type \
 	$( [[ "$distorted" == true ]] && echo "--distorted" ) \
+	$( [[ "$use_match_loss" == true ]] && echo "--use_match_loss" ) \
+	$( [[ "$disable_gate" == true ]] && echo "--disable_gate" ) \
 	--run_name "$run_name" \
 	>> "$log_file" 2>&1
 exit_code=$?

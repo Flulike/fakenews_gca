@@ -4,13 +4,25 @@ set -euo pipefail
 mkdir -p results
 
 dataset_name="lun"
-model_version="v1"
+model_version="v2"
+encoder_type="roberta"
 distorted=true
+use_match_loss=true
+disable_gate=false
 
 run_id="$(date +%Y%m%d_%H%M%S)"
 run_name="${run_id}_${dataset_name}_${model_version}"
+if [[ "$encoder_type" == "bert" ]]; then
+	run_name="${run_name}_bert"
+fi
 if [[ "$distorted" == true ]]; then
 	run_name="${run_name}_distort"
+fi
+if [[ "$use_match_loss" == false ]]; then
+	run_name="${run_name}_noloss"
+fi
+if [[ "$disable_gate" == true ]]; then
+	run_name="${run_name}_nogate"
 fi
 log_file="results/${run_name}.log"
 status_file="results/${run_name}.status"
@@ -31,8 +43,9 @@ CUDA_VISIBLE_DEVICES=1 uv run src/sheepdog.py \
 	--n_epochs 5 \
 	--batch_size 4 \
 	--model_version $model_version \
-	--use_match_loss \
 	$( [[ "$distorted" == true ]] && echo "--distorted" ) \
+	$( [[ "$use_match_loss" == true ]] && echo "--use_match_loss" ) \
+	$( [[ "$disable_gate" == true ]] && echo "--disable_gate" ) \
 	--run_name "$run_name" \
 	>> "$log_file" 2>&1
 exit_code=$?
