@@ -3,6 +3,7 @@ checkpoints
 dataset
 logs/
 results/
+results
 ARG/
 FaKnow/
 figures/
