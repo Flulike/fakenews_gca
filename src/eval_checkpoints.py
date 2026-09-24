@@ -144,9 +144,16 @@ class TransformerClassifier(nn.Module):
         self.fc_out = nn.Linear(hidden_size, n_classes)
         self.binary_transform = nn.Linear(hidden_size, 2)
 
-    def forward(self, input_ids, attention_mask, exp_feature=None, text_boundary=None):
+    def forward(self, input_ids, attention_mask, exp_feature=None, exp_attention_mask=None, text_boundary=None):
         if self.model_version == "v4":
             outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask, text_boundary=text_boundary)
+        elif self.model_version == "v2":
+            outputs = self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                exp_feature=exp_feature,
+                exp_attention_mask=exp_attention_mask,
+            )
         else:
             outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature)
 
@@ -328,7 +335,8 @@ def evaluate_checkpoint(args, model, exp_enc, tokenizer, exp_tokenizer, test_loa
                     exp_feature = exp_enc_out.last_hidden_state.to(device)
                 else:
                     exp_feature = None
-                _, val_out = model(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature)
+                _, val_out = model(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature,
+                                   exp_attention_mask=attention_mask_exp)
 
             _, val_pred = val_out.max(dim=1)
             y_pred.append(val_pred)
@@ -387,7 +395,8 @@ def evaluate_checkpoint(args, model, exp_enc, tokenizer, exp_tokenizer, test_loa
                         exp_feature = exp_enc_out.last_hidden_state.to(device)
                     else:
                         exp_feature = None
-                    _, val_out_aug = model(input_ids=input_ids_aug, attention_mask=attention_mask_aug, exp_feature=exp_feature)
+                    _, val_out_aug = model(input_ids=input_ids_aug, attention_mask=attention_mask_aug, exp_feature=exp_feature,
+                                           exp_attention_mask=attention_mask_exp)
 
                 _, val_pred_aug = val_out_aug.max(dim=1)
                 y_pred_res.append(val_pred_aug)
@@ -474,14 +483,24 @@ def main():
             pretrained_name=pretrained_backbone_name,
         ).float().to(device)
 
-        state_dict = torch.load(ckpt_path, map_location=device)
-        model.load_state_dict(state_dict)
+        checkpoint = torch.load(ckpt_path, map_location=device)
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            model_state_dict = checkpoint["model_state_dict"]
+            exp_encoder_state_dict = checkpoint.get("exp_encoder_state_dict")
+        else:
+            model_state_dict = checkpoint
+            exp_encoder_state_dict = None
+        model.load_state_dict(model_state_dict)
 
         if args.model_version not in ["v4", "v5"]:
             if args.encoder_type == "roberta":
                 exp_enc = RobertaEncoderResults.from_pretrained(pretrained_backbone_name, return_dict=True).to(device)
             else:
                 exp_enc = HFBertModel.from_pretrained(pretrained_backbone_name, return_dict=True).to(device)
+            if exp_encoder_state_dict is not None:
+                exp_enc.load_state_dict(exp_encoder_state_dict)
+            else:
+                print("[WARN] Legacy checkpoint has no trained explanation encoder; results are not strictly reproducible.")
         else:
             exp_enc = None
 

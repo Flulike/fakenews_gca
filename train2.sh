@@ -7,7 +7,7 @@ encoder_type="roberta"
 dataset_name="gossipcop"
 model_version="v2"
 distorted=false
-use_match_loss=false
+use_match_loss=true
 disable_gate=false
 
 run_id="$(date +%Y%m%d_%H%M%S)"
@@ -43,7 +43,6 @@ CUDA_VISIBLE_DEVICES=2 uv run src/sheepdog.py \
 	--n_epochs 5 \
 	--batch_size 4 \
 	--model_version $model_version \
-	--use_match_loss \
 	--encoder_type $encoder_type \
 	$( [[ "$distorted" == true ]] && echo "--distorted" ) \
 	$( [[ "$use_match_loss" == true ]] && echo "--use_match_loss" ) \

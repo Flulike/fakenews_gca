@@ -65,10 +65,14 @@ from dataclasses import dataclass
 @dataclass
 class OptionalModelOutput(BaseModelOutputWithPastAndCrossAttentions):
     gate: Optional[torch.FloatTensor] = None
+    explanation_attention: Optional[torch.FloatTensor] = None
+    fusion_delta: Optional[torch.FloatTensor] = None
 
 @dataclass
 class OptionalModelOutput2(BaseModelOutputWithPoolingAndCrossAttentions):
     gate: Optional[torch.FloatTensor] = None
+    explanation_attention: Optional[torch.FloatTensor] = None
+    fusion_delta: Optional[torch.FloatTensor] = None
 
 class BertEmbeddings(nn.Module):
     """Standard BERT embeddings without RoBERTa's position embedding modifications."""
@@ -714,6 +718,9 @@ class RobertaEncoder(nn.Module):
                 use_cache = False
 
         next_decoder_cache = () if use_cache else None
+        gate = None
+        explanation_attention = None
+        fusion_delta = None
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
@@ -745,10 +752,11 @@ class RobertaEncoder(nn.Module):
             hidden_states = layer_outputs[0]
             # 增加解释特征 开始
             if i == self.fusion_layer:
+                pre_fusion_hidden_states = hidden_states
                 K = self._linear_1(exp_feature).transpose(0, 1)
                 V = self._linear_2(exp_feature).transpose(0, 1)
                 Q = self._linear_3(hidden_states).transpose(0, 1)
-                attn_output, _ = self._multi_head_attn_1(Q, K, V) 
+                attn_output, explanation_attention = self._multi_head_attn_1(Q, K, V)
                 attn_output = attn_output.transpose(0, 1)
                 attn_output_2 = self._linear_4(attn_output)
                 
@@ -761,6 +769,7 @@ class RobertaEncoder(nn.Module):
                     gate_input = torch.cat((hidden_states, attn_output), 2)
                     gate = self.gate_layer(gate_input)
                     hidden_states = gate * attn_output_2 + (1 - gate) * hidden_states
+                fusion_delta = hidden_states - pre_fusion_hidden_states
             # 增加解释特征 结束
             if use_cache:
                 next_decoder_cache += (layer_outputs[-1],)
@@ -790,7 +799,9 @@ class RobertaEncoder(nn.Module):
             hidden_states=all_hidden_states,
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
-            gate=gate
+            gate=gate,
+            explanation_attention=explanation_attention,
+            fusion_delta=fusion_delta,
         )
 
 
@@ -1126,7 +1137,9 @@ class RobertaModel(RobertaPreTrainedModel):
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
             cross_attentions=encoder_outputs.cross_attentions,
-            gate=encoder_outputs.gate
+            gate=encoder_outputs.gate,
+            explanation_attention=encoder_outputs.explanation_attention,
+            fusion_delta=encoder_outputs.fusion_delta,
         )
 
 

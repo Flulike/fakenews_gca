@@ -377,11 +377,17 @@ class TransformerClassifier(nn.Module):
         self.fc_out = nn.Linear(hidden_size, n_classes)
         self.binary_transform = nn.Linear(hidden_size, 2)
 
-    def forward(self, input_ids, attention_mask, exp_feature=None, text_boundary=None):
+    def forward(self, input_ids, attention_mask, exp_feature=None, exp_attention_mask=None, text_boundary=None):
         if self.model_version == 'v4':
             outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask, text_boundary=text_boundary)
+        elif self.model_version == 'v2':
+            outputs = self.backbone(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                exp_feature=exp_feature,
+                exp_attention_mask=exp_attention_mask,
+            )
         else:
-            # For both BERT and RoBERTa, pass exp_feature if model version requires it
             outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature)
 
         pooled = getattr(outputs, 'pooler_output', None)
@@ -630,6 +636,8 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
     for epoch in range(n_epochs):
         model.train()
         x_train_res1, x_train_res2, y_train_fg, y_train_fg_m, y_train_fg_t = load_reframing(args.dataset_name)
+        if exp_enc is not None:
+            exp_enc.train()
         print(f"Fine-grain labels shape: {np.array(y_train_fg).shape if y_train_fg is not None else 'None'}")
         print(f"Fine-grain labels sample: {y_train_fg[:3] if y_train_fg is not None else 'None'}")
         train_loader = create_train_loader(x_train, x_train_res1, x_train_res2, y_train, z_train, y_train_fg, y_train_fg_m, y_train_fg_t, tokenizer, exp_tokenizer, max_len, batch_size)
@@ -745,21 +753,24 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
                     print(f"Padding idx: {model.backbone.embeddings.padding_idx}")
                 
                 # Model forward passes for v1, v2, v3
-                model_outputs = model(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature)
+                model_outputs = model(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature,
+                                      exp_attention_mask=attention_mask_exp)
                 if args.use_match_loss and len(model_outputs) == 3:
                     out_labels, out_labels_bi, gate_1 = model_outputs
                 else:
                     out_labels, out_labels_bi = model_outputs
                     gate_1 = None
 
-                model_outputs_aug1 = model(input_ids=input_ids_aug1, attention_mask=attention_mask_aug1, exp_feature=exp_feature)
+                model_outputs_aug1 = model(input_ids=input_ids_aug1, attention_mask=attention_mask_aug1, exp_feature=exp_feature,
+                                           exp_attention_mask=attention_mask_exp)
                 if args.use_match_loss and len(model_outputs_aug1) == 3:
                     out_labels_aug1, out_labels_bi_aug1, gate_2 = model_outputs_aug1
                 else:
                     out_labels_aug1, out_labels_bi_aug1 = model_outputs_aug1
                     gate_2 = None
 
-                model_outputs_aug2 = model(input_ids=input_ids_aug2, attention_mask=attention_mask_aug2, exp_feature=exp_feature)
+                model_outputs_aug2 = model(input_ids=input_ids_aug2, attention_mask=attention_mask_aug2, exp_feature=exp_feature,
+                                           exp_attention_mask=attention_mask_exp)
                 if args.use_match_loss and len(model_outputs_aug2) == 3:
                     out_labels_aug2, out_labels_bi_aug2, gate_3 = model_outputs_aug2
                 else:
@@ -919,6 +930,8 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
         print("Iter {:03d} | Epoch {:05d} | Train Acc. {:.4f}".format(iter, epoch, epoch_train_acc))
 
         if epoch == n_epochs - 1:
+            if exp_enc is not None:
+                exp_enc.eval()
             model.eval()
             y_pred = []
             y_pred_res = []
@@ -958,7 +971,8 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
                             exp_feature = exp_enc_out.last_hidden_state.to(device)
                         else:
                             exp_feature = None
-                        model_outputs = model(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature)
+                        model_outputs = model(input_ids=input_ids, attention_mask=attention_mask, exp_feature=exp_feature,
+                                              exp_attention_mask=attention_mask_exp)
                         if len(model_outputs) == 3:
                             _, val_out, _ = model_outputs  # unpack 3 values when gate_values is returned
                         else:
@@ -1011,7 +1025,8 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
                                 exp_feature = exp_enc_out.last_hidden_state.to(device)
                             else:
                                 exp_feature = None
-                            model_outputs_aug = model(input_ids=input_ids_aug, attention_mask=attention_mask_aug, exp_feature=exp_feature)
+                            model_outputs_aug = model(input_ids=input_ids_aug, attention_mask=attention_mask_aug, exp_feature=exp_feature,
+                                                      exp_attention_mask=attention_mask_exp)
                             if len(model_outputs_aug) == 3:
                                 _, val_out_aug, _ = model_outputs_aug  # unpack 3 values when gate_values is returned
                             else:
@@ -1044,7 +1059,31 @@ def train_model(tokenizer, exp_tokenizer, max_len, n_epochs, batch_size, dataset
 
 
     checkpoint_path = build_checkpoint_path(datasetname, run_name, iter)
-    torch.save(model.state_dict(), checkpoint_path)
+    checkpoint = {
+        "format_version": 2,
+        "model_state_dict": model.state_dict(),
+        "exp_encoder_state_dict": exp_enc.state_dict() if exp_enc is not None else None,
+        "args": vars(args),
+        "dataset": datasetname,
+        "run_name": run_name,
+        "iteration": iter,
+        "metrics": {
+            "original": {
+                "accuracy": acc,
+                "precision": precision,
+                "recall": recall,
+                "f1": fscore,
+            },
+            "restyle": {
+                "accuracy": acc_res,
+                "precision": precision_res,
+                "recall": recall_res,
+                "f1": fscore_res,
+            },
+            "emotions": emotion_results,
+        },
+    }
+    torch.save(checkpoint, checkpoint_path)
     print(f"Saved checkpoint to {checkpoint_path}")
 
     print("-----------------End of Iter {:03d}-----------------".format(iter))

@@ -65,10 +65,14 @@ from dataclasses import dataclass
 @dataclass
 class OptionalModelOutput(BaseModelOutputWithPastAndCrossAttentions):
     gate: Optional[torch.FloatTensor] = None
+    explanation_attention: Optional[torch.FloatTensor] = None
+    fusion_delta: Optional[torch.FloatTensor] = None
 
 @dataclass
 class OptionalModelOutput2(BaseModelOutputWithPoolingAndCrossAttentions):
     gate: Optional[torch.FloatTensor] = None
+    explanation_attention: Optional[torch.FloatTensor] = None
+    fusion_delta: Optional[torch.FloatTensor] = None
 
 
 class BertEmbeddings(nn.Module):
@@ -701,12 +705,16 @@ class RobertaEncoder(nn.Module):
         output_attentions: Optional[bool] = False,
         output_hidden_states: Optional[bool] = False,
         return_dict: Optional[bool] = True,
-        exp_feature=None
+        exp_feature=None,
+        message_attention_mask=None,
+        exp_attention_mask=None,
     ) -> Union[Tuple[torch.Tensor], BaseModelOutputWithPastAndCrossAttentions]:
         all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
         gate = None
+        explanation_attention = None
+        fusion_delta = None
 
         # 增加解释特征 开始
         #explanation_enc_out=self.roberta_encoder_res(input_ids=input_ids_exp, attention_mask=attention_mask_exp)
@@ -755,20 +763,32 @@ class RobertaEncoder(nn.Module):
             hidden_states = layer_outputs[0]
             # 增加解释特征 开始
             if i == self.fusion_layer:
-                msg_repr = hidden_states.mean(dim=1, keepdim=True)  # [B, 1, H]
+                if exp_feature is None:
+                    raise ValueError("exp_feature is required at the configured fusion layer")
+
+                pre_fusion_hidden_states = hidden_states
+                if message_attention_mask is None:
+                    msg_repr = hidden_states.mean(dim=1, keepdim=True)
+                else:
+                    msg_mask = message_attention_mask.to(hidden_states.dtype).unsqueeze(-1)
+                    msg_repr = (hidden_states * msg_mask).sum(dim=1, keepdim=True)
+                    msg_repr = msg_repr / msg_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
                 msg_repr_expand = msg_repr.expand(-1, exp_feature.size(1), -1)  # [B, L_exp, H]
                 exp_score_input = torch.cat([exp_feature, msg_repr_expand], dim=-1)  # [B, L_exp, 2H]
                 exp_score = self.exp_score_layer(exp_score_input).squeeze(-1)        # [B, L_exp]
-                exp_score = torch.softmax(exp_score, dim=1)                          # token-wise attention
-                exp_summary = torch.bmm(exp_score.unsqueeze(1), exp_feature)  # [B, 1, H]
+                if exp_attention_mask is not None:
+                    exp_score = exp_score.masked_fill(exp_attention_mask == 0, torch.finfo(exp_score.dtype).min)
+                explanation_attention = torch.softmax(exp_score, dim=1)              # [B, L_exp]
+                exp_summary = torch.bmm(explanation_attention.unsqueeze(1), exp_feature)  # [B, 1, H]
                 exp_summary = exp_summary.expand(-1, hidden_states.size(1), -1)  # [B, L_msg, H]
                 if self.disable_gate:
-                    gate = torch.ones_like(hidden_states[:, :, :1])
+                    gate = torch.ones_like(hidden_states)
                     hidden_states = exp_summary + hidden_states
                 else:
                     gate_input = torch.cat((hidden_states, exp_summary), dim=2)  # [B, L_msg, 2H]
                     gate = self.gate_layer(gate_input)  # [B, L_msg, H]
                     hidden_states = gate * exp_summary + (1 - gate) * hidden_states
+                fusion_delta = hidden_states - pre_fusion_hidden_states
                 #K = self._linear_1(exp_feature).transpose(0, 1)
                 #V = self._linear_2(exp_feature).transpose(0, 1)
                 #Q = self._linear_3(hidden_states).transpose(0, 1)
@@ -807,7 +827,9 @@ class RobertaEncoder(nn.Module):
             hidden_states=all_hidden_states,
             attentions=all_self_attentions,
             cross_attentions=all_cross_attentions,
-            gate=gate
+            gate=gate,
+            explanation_attention=explanation_attention,
+            fusion_delta=fusion_delta,
         )
 
 
@@ -996,7 +1018,8 @@ class RobertaModel(RobertaPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        exp_feature=None
+        exp_feature=None,
+        exp_attention_mask=None,
     ) -> Union[Tuple[torch.Tensor], BaseModelOutputWithPoolingAndCrossAttentions]:
         r"""
         encoder_hidden_states  (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
@@ -1128,7 +1151,9 @@ class RobertaModel(RobertaPreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            exp_feature=exp_feature
+            exp_feature=exp_feature,
+            message_attention_mask=attention_mask,
+            exp_attention_mask=exp_attention_mask,
         )
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
@@ -1143,7 +1168,9 @@ class RobertaModel(RobertaPreTrainedModel):
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
             cross_attentions=encoder_outputs.cross_attentions,
-            gate=encoder_outputs.gate
+            gate=encoder_outputs.gate,
+            explanation_attention=encoder_outputs.explanation_attention,
+            fusion_delta=encoder_outputs.fusion_delta,
         )
 
 class BertModel(RobertaModel):

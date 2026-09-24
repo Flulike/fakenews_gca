@@ -9,3 +9,6 @@ FaKnow/
 figures/
 FakeNewsNet/
 *.pyc
+analysis/
+scripts/
+analyze_*

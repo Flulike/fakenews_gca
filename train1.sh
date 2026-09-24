@@ -7,8 +7,8 @@ dataset_name="politifact"
 model_version="v2"
 encoder_type="roberta"
 distorted=false
-use_match_loss=false
-disable_gate=true
+use_match_loss=true
+disable_gate=false
 
 run_id="$(date +%Y%m%d_%H%M%S)"
 run_name="${run_id}_${dataset_name}_${model_version}"
